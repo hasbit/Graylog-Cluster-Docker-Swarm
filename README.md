@@ -5,22 +5,28 @@ Starting Graylog in your Lab with cluster mode (docker swarm)
 This guide will help you run Graylog in cluster mode on multiple nodes thanks to Docker Swarm !
 You need to pay attention to all the steps to take before running the docker stack YML file, because they will help you to achieve a real cluster environment with high availability.
 
-![image](https://github.com/user-attachments/assets/9daa469a-81bb-4dd4-9616-444b21b1c64a)
+![graylog-cluster drawio](https://github.com/user-attachments/assets/f18e8109-d3e7-4b78-b5b5-882f750fbb15)
+
 
 ## **1. Hardware and Software Requirements**
 
 ### Hardware
 - **3 Swarm Manager VMs**: `gl-swarm-01`, `gl-swarm-02`, `gl-swarm-03`
 
-#### Example hardware PROXMOX
+#### Example hardware Vmware
 
 1. Create 3 VMs
-   
-![image](https://github.com/user-attachments/assets/3c6a174f-822d-40ee-a988-e2b0e24b960f)
+   ![image](https://github.com/user-attachments/assets/c0b2d98c-645e-4433-95ec-f23e7fb94217)
+
+
+
 
 2. Choose Host for the CPU on Hardware settings:
 
-![image](https://github.com/user-attachments/assets/2f776733-4eaa-4098-8f36-18137919d141)
+![image](https://github.com/user-attachments/assets/c0f2d6b3-ac28-4de9-a981-31030c5e0f9d)
+
+
+1)
 
 If not, you will have a message error for MongoDB: `WARNING: MongoDB 5.0+ requires a CPU with AVX support, and your current system does not appear to have that!`
 
@@ -34,7 +40,7 @@ echo 'vm.max_map_count = 262144' | sudo tee -a /etc/sysctl.conf
 After reboot, you can verify that the setting is still correct by running `sysctl vm.max_map_count`
 
 ### Software
-- **OS**: Alma Linux 9.5
+- **OS**: Ubuntu 24.04
 - **Docker**: Version 27.3.1
 - **Traefik**: Reverse Proxy v3.2.1
 - **Graylog**: Version 6.1.4
@@ -51,10 +57,10 @@ Edit and append DNS entries to the `/etc/hosts` file on **all VMs**:
 
 ```bash
 cat <<EOF >> /etc/hosts
-192.168.30.10   gl-swarm-01.sopaline.lan
-192.168.30.11   gl-swarm-02.sopaline.lan
-192.168.30.12   gl-swarm-03.sopaline.lan
-192.168.30.100  graylog.sopaline.lan
+10.1.30.10   gl-swarm-01
+10.1.30.11   gl-swarm-02
+10.1.30.12   gl-swarm-03
+10.1.30.100  graylog
 EOF
 ```
 
@@ -64,11 +70,12 @@ Install the necessary tools on each **VM**:
 
 ```bash
 # Update packages
-sudo dnf update -y && sudo dnf upgrade -y
+sudo apt update && apt upgrade -y
 
 # Install Docker and Docker Compose
-sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
-sudo dnf install docker-ce docker-ce-cli containerd.io
+ curl -fsSL https://get.docker.com -o get-docker.sh
+ sudo sh get-docker.sh
+
 sudo systemctl start docker
 sudo systemctl enable docker
 sudo usermod -aG docker $USER
@@ -77,28 +84,44 @@ sudo usermod -aG docker $USER
 - **GlusterFS**: High-availability storage servers.
 - **Keepalived**: For managing the **Virtual IP (VIP)**.
 ```
-# Install GlusterFS and Keepalived
-sudo dnf install epel-release centos-release-gluster10 -y
-sudo dnf install glusterfs-server keepalived wget curl -y
-sudo systemctl enable glusterd
-sudo systemctl start glusterd
+# Update package lists
+sudo apt update -y
+
+# Install GlusterFS repository
+sudo add-apt-repository ppa:gluster/glusterfs-10 -y
+sudo apt update -y
+
+# Install GlusterFS server, Keepalived, wget, and curl
+sudo apt install glusterfs-server keepalived wget curl -y
+
+# Enable and start GlusterFS service
+sudo systemctl enable glusterd --now
+
+# Enable Keepalived (it needs to be configured before starting)
 sudo systemctl enable keepalived
-```
 
 Do not start now the Keepalive service.
 
-### 2.3 Set firewalld on all VMs
+# Allow Docker Swarm communication ports
+sudo iptables -A INPUT -p tcp --dport 2377 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 7946 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 7946 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 4789 -j ACCEPT
 
-```
-sudo systemctl enable firewalld && sudo systemctl start firewalld
-sudo firewall-cmd --permanent --add-port=2377/tcp --zone=public
-sudo firewall-cmd --zone=public --add-port=7946/tcp --permanent
-sudo firewall-cmd --zone=public --add-port=7946/udp --permanent
-sudo firewall-cmd --zone=public --add-port=4789/udp --permanent
-sudo firewall-cmd --zone=public --add-service=glusterfs --permanent
-sudo firewall-cmd --zone=public --add-port=9300/tcp --permanent
-sudo firewall-cmd --zone=public --add-port=9200/tcp --permanent
-sudo firewall-cmd --reload
+# Allow GlusterFS service
+sudo iptables -A INPUT -p tcp --dport 24007 -j ACCEPT  # GlusterFS management
+sudo iptables -A INPUT -p tcp --dport 24008 -j ACCEPT  # GlusterFS RDMA
+sudo iptables -A INPUT -p tcp --dport 49152:49160 -j ACCEPT  # GlusterFS brick ports
+
+# Allow Elasticsearch ports
+sudo iptables -A INPUT -p tcp --dport 9300 -j ACCEPT  # Cluster communication
+sudo iptables -A INPUT -p tcp --dport 9200 -j ACCEPT  # REST API
+
+# Save iptables rules to persist after reboot
+sudo apt install iptables-persistent -y
+sudo netfilter-persistent save
+sudo netfilter-persistent reload
+
 ```
 Or simply disable it: `systemctl disable firewalld && systemctl stop firewalld`
 
@@ -106,20 +129,23 @@ Or simply disable it: `systemctl disable firewalld && systemctl stop firewalld`
 
 Initialize Docker Swarm on **gl-swarm-01**:
 ```bash
-sudo docker swarm init --advertise-addr 192.168.30.10
+sudo docker swarm init --advertise-addr 10.1.30.10
 docker swarm join-token manager
 ```
 Copy the command described and paste it to **gl-swarm-02** and **gl-swarm-03**
 
 Join **gl-swarm-02** and **gl-swarm-03** to the cluster:
 ```bash
-sudo docker swarm join --token <SWARM_TOKEN> 192.168.30.10:2377
+sudo docker swarm join --token <SWARM_TOKEN> 10.1.30.10:2377
 ```
 Verify the cluster:
 ```bash
 sudo docker node ls
 ```
+![image](https://github.com/user-attachments/assets/902bc4f3-0c7a-4055-b222-51d1735f2ba6)
 
+```
+```
 All nodes are part of Docker swarm cluster ! Then let's set GlusterFS for cluster storage that will be used by all of our containers across the swarm cluster.
 
 ## **3. GlusterFS Configuration**
@@ -137,10 +163,19 @@ On **gl-swarm-01**, **gl-swarm-02**, **gl-swarm-03**:
    ```bash
    sudo gluster peer probe gl-swarm-02
    sudo gluster peer probe gl-swarm-03
-   sudo gluster volume create gv0 replica 3 transport tcp gl-swarm-01:/srv/glusterfs gl-swarm-02:/srv/glusterfs gl-swarm-03:/srv/glusterfs
+   sudo gluster volume create gv0 replica 3 transport tcp gl-swarm-01:/srv/glusterfs gl-swarm-02:/srv/glusterfs gl-swarm-03:/srv/glusterfs force
    sudo gluster volume start gv0
+
+   ![image](https://github.com/user-attachments/assets/439c9325-7f23-4260-9477-7242e76e9241)
+
    ```
    Verify gluster cluster with: `sudo gluster peer status`
+   ![image](https://github.com/user-attachments/assets/04b85a5b-0bcd-467b-896d-c02fc6c21ded)
+
+
+
+    
+
 
 We will then use`/home/admin/mnt-glusterfs` as a mountpoint.
 
@@ -194,7 +229,7 @@ vrrp_instance VI_1 {
         auth_pass somepassword
     }
     virtual_ipaddress {
-        192.168.30.100/24  # VIP
+        10.1.30.100/24  # VIP
     }
 }
 EOF'
@@ -220,7 +255,7 @@ vrrp_instance VI_1 {
         auth_pass somepassword
     }
     virtual_ipaddress {
-        192.168.30.100/24  # VIP
+        10.1.30.100/24  # VIP
     }
 }
 EOF'
@@ -246,7 +281,7 @@ vrrp_instance VI_1 {
         auth_pass somepassword
     }
     virtual_ipaddress {
-        192.168.30.100/24  # VIP
+        10.1.30.100/24  # VIP
     }
 }
 EOF'
@@ -298,24 +333,31 @@ The folder tree will look like this
 
 - Init script for set replicas mongodb
 ```
-wget -O /home/admin/mnt-glusterfs/mongodb/init-replset.js https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/main/mnt-glusterfs/mongodb/init-replset.js
-wget -O /home/admin/mnt-glusterfs/mongodb/initdb.d/init-replset.sh https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/main/mnt-glusterfs/mongodb/initdb.d/init-replset.sh
-sudo chown -R 999:999 /home/admin/mnt-glusterfs/mongodb/init-replset.js
-sudo chown -R 999:999 /home/admin/mnt-glusterfs/mongodb/initdb.d/
+wget -O /home/admin/mnt-glusterfs/mongodb/init-replset.js https://github.com/hasbit/Graylog-Cluster-Docker-Swarm/blob/main/mnt-glusterfs/mongodb/init-replset.js
+wget -O /home/admin/mnt-glusterfs/mongodb/initdb.d/init-replset.sh https://github.com/hasbit/Graylog-Cluster-Docker-Swarm/blob/main/mnt-glusterfs/mongodb/initdb.d/init-replset.sh
+sudo chown -R 1000:1000 /home/admin/mnt-glusterfs/mongodb/init-replset.js
+sudo chown -R 1000:1000 /home/admin/mnt-glusterfs/mongodb/initdb.d/
 ```
 
-Chown 999 is to set the ownership ID similar to inside the container, otherwise the replicaset initialization will not work.
+Chown 1000 is to set the ownership ID similar to inside the container, otherwise the replicaset initialization will not work.
 
 - Traefik files and demo cert:
 ```
-wget -O /home/admin/mnt-glusterfs/traefik/traefik.yaml https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/refs/heads/main/mnt-glusterfs/traefik/traefik.yaml
-wget -O /home/admin/mnt-glusterfs/traefik/certs/graylog.sopaline.lan.crt https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/refs/heads/main/mnt-glusterfs/traefik/certs/graylog.sopaline.lan.crt
-wget -O /home/admin/mnt-glusterfs/traefik/certs/graylog.sopaline.lan.key https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/refs/heads/main/mnt-glusterfs/traefik/certs/graylog.sopaline.lan.key
+wget -O /home/admin/mnt-glusterfs/traefik/traefik.yaml https://github.com/hasbit/Graylog-Cluster-Docker-Swarm/blob/main/mnt-glusterfs/traefik/traefik.yaml
+
+
+### Create Certificate with OpenSSL
+openssl genpkey -algorithm RSA -out server.key -aes256
+openssl req -new -key server.key -out server.csr
+openssl x509 -req -days 365 -in server.csr -signkey server.key -out server.crt
+
+
+
 ```
 
 - Docker stack compose file
 ```
-wget -O /home/admin/docker-stack.yml https://raw.githubusercontent.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/refs/heads/main/docker-stack-with-Traefik.yml
+wget -O /home/admin/docker-stack.yml https://github.com/hasbit/Graylog-Cluster-Docker-Swarm/blob/main/docker-stack-with-Traefik.yml
 ```
 
 BE CAREFUL HERE ! Before running the stack read this below:
@@ -334,28 +376,22 @@ docker stack deploy -c docker-stack.yml Graylog-Swarm
 
 To view if the service stack is opearationnel and everything has a replicas, run: `docker stack services Graylog-Swarm`
 
-![image](https://github.com/user-attachments/assets/6300d299-d372-4035-b179-1a69336b4be0)
+![image](https://github.com/user-attachments/assets/d37e3e52-9cc8-4ca0-9ab3-8fe0a2b68d42)
 
-#### 5.3.2 View stack service enhanced
+
+
 
 ```
-sh /home/admin/mnt-glusterfs/view-services.sh
 ```
-![image](https://github.com/user-attachments/assets/9faf5c62-f746-48f9-819e-d5a6a14c1bd7)
-
-
-
 #### 5.3.1 Verify Graylog API
 
-Check cluster node via API, use the HTTPS: `curl -u admin:admin -k https://graylog.sopaline.lan:443/api/system/cluster/nodes | jq .`
-
-![image](https://github.com/user-attachments/assets/0ae35461-de52-4e81-83e6-efd3a79631a4)
-
-#### 5.3.2 Verify Graylog access to web UI !
-
-![image](https://github.com/user-attachments/assets/0321f66a-1275-48be-8eaa-4ee2375e8f8f)
+Check cluster node via API, use the HTTPS: `curl -u admin:admin -k https://graylog:443/api/system/cluster/nodes | jq .`
 
 
+![image](https://github.com/user-attachments/assets/2783910b-219d-4e1a-b64e-f94743926a76)
+
+```
+```
 ## 6 DEFAULTS CREDS
 
 - Graylog WEB UI
@@ -364,12 +400,13 @@ Check cluster node via API, use the HTTPS: `curl -u admin:admin -k https://grayl
 
 # 7 :blue_book: Docker-stack.YML config
 
-[Docker Stack File Config](https://github.com/s0p4L1n3/Graylog-Cluster-Docker-Swarm/blob/main/DockerStack-configfile.md)
+[Docker Stack File Config] (https://github.com/hasbit/Graylog-Cluster-Docker-Swarm/blob/main/DockerStack-configfile.md)
 
 
 # 8 Credits 
 
-Thanks to for the understanding of the basics:
+
+Thanks to https://github.com/s0p4L1n3 for the project
 
 - https://workingtitle.pro/posts/graylog-on-docker-part-1/
 - https://workingtitle.pro/posts/graylog-on-docker-part-2/
