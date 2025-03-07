@@ -65,7 +65,7 @@ services:
 ########## MONGODB ############
 
   mongodb01:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb01
     volumes:
       - mongo01-data:/data/db
@@ -90,7 +90,7 @@ services:
         condition: on-failure
 
   mongodb02:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb02
     volumes:
       - mongo02-data:/data/db
@@ -114,7 +114,7 @@ services:
         condition: on-failure
 
   mongodb03:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb03
     volumes:
       - mongo03-data:/data/db
@@ -140,7 +140,7 @@ services:
 ############ OPENSEARCH ##############
 
   opensearch01:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os01
     volumes:
       - os01-data:/usr/share/opensearch/data
@@ -184,7 +184,7 @@ services:
         condition: on-failure
 
   opensearch02:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os02
     volumes:
       - os02-data:/usr/share/opensearch/data
@@ -228,7 +228,7 @@ services:
         condition: on-failure
 
   opensearch03:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os03
     volumes:
       - os03-data:/usr/share/opensearch/data
@@ -274,7 +274,7 @@ services:
 ############## GRAYLOG ##########################
 
   graylog01:
-    image: graylog/graylog:6.1.4
+    image: graylog/graylog:6.1.8
     hostname: graylog01
     depends_on:
       - mongodb01
@@ -331,7 +331,7 @@ services:
         mode: host
 
   graylog02:
-    image: graylog/graylog:6.1.4
+    image: graylog/graylog:6.1.8
     hostname: graylog02
     depends_on:
       - mongodb01
@@ -389,7 +389,7 @@ services:
         mode: host
 
   graylog03:
-    image: graylog/graylog:6.1.4
+    image: graylog/graylog:6.1.8
     hostname: graylog03
     depends_on:
       - mongodb01
@@ -450,7 +450,7 @@ services:
 ####### Reverse Proxyx / Traefik ####################
 
   traefik:
-   image: traefik:3.2.1
+   image: traefik:v3.3.4
    healthcheck:
      test:
        - CMD
