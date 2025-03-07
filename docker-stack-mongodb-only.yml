@@ -24,7 +24,7 @@ volumes:
 
 services:
   mongodb01:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb01
     volumes:
       - mongo01-data:/data/db
@@ -49,7 +49,7 @@ services:
         condition: on-failure
 
   mongodb02:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb02
     volumes:
       - mongo02-data:/data/db
@@ -73,7 +73,7 @@ services:
         condition: on-failure
 
   mongodb03:
-    image: mongo:7.0.14
+    image: mongo:8.0.4
     hostname: mongodb03
     volumes:
       - mongo03-data:/data/db
