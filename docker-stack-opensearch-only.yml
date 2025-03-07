@@ -24,7 +24,7 @@ volumes:
 
 services:
   opensearch01:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os01
     volumes:
       - os01-data:/usr/share/opensearch/data
@@ -64,7 +64,7 @@ services:
           - node.hostname == gl-swarm-01
 
   opensearch02:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os02
     volumes:
       - os02-data:/usr/share/opensearch/data
@@ -104,7 +104,7 @@ services:
           - node.hostname == gl-swarm-02
 
   opensearch03:
-    image: opensearchproject/opensearch:2.15.0
+    image: opensearchproject/opensearch:2.19.0
     hostname: os03
     volumes:
       - os03-data:/usr/share/opensearch/data
